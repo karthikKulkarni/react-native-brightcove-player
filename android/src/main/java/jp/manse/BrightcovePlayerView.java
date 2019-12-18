@@ -3,13 +3,17 @@ package jp.manse;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.graphics.Color;
-import android.support.v4.view.ViewCompat;
 import android.util.Log;
 import android.view.Choreographer;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
 
+import androidx.core.view.ViewCompat;
+
+import com.brightcove.player.analytics.Analytics;
 import com.brightcove.player.display.ExoPlayerVideoDisplayComponent;
 import com.brightcove.player.edge.Catalog;
 import com.brightcove.player.edge.OfflineCatalog;
@@ -18,12 +22,13 @@ import com.brightcove.player.event.Event;
 import com.brightcove.player.event.EventEmitter;
 import com.brightcove.player.event.EventListener;
 import com.brightcove.player.event.EventType;
-import com.brightcove.player.mediacontroller.BrightcoveMediaController;
 import com.brightcove.player.mediacontroller.BrightcoveMediaControlRegistry;
+import com.brightcove.player.mediacontroller.BrightcoveMediaController;
 import com.brightcove.player.mediacontroller.buttons.SeekButtonController;
 import com.brightcove.player.model.Video;
-import com.brightcove.player.analytics.Analytics;
+import com.brightcove.player.network.HttpRequestConfig;
 import com.brightcove.player.view.BrightcoveExoPlayerVideoView;
+import com.brightcove.ssai.SSAIComponent;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -55,6 +60,7 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
     private ThemedReactContext context;
     private ReactApplicationContext applicationContext;
     private BrightcoveExoPlayerVideoView playerVideoView;
+    private FrameLayout adView;
     private BrightcoveMediaController mediaController;
     private String policyKey;
     private String accountId;
@@ -63,19 +69,28 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
     private String referenceId;
     private String videoToken;
     private Catalog catalog;
-	private Analytics analytics;
+    private Analytics analytics;
     private OfflineCatalog offlineCatalog;
-	private Map<String, Object> mediaInfo;
+    private Map<String, Object> mediaInfo;
     private boolean autoPlay = true;
     private boolean playing = false;
     private int bitRate = 0;
     private float playbackRate = 1;
-	private static final int SEEK_AMOUNT = 10000; // In milliseconds
+    private static final int SEEK_AMOUNT = 10000; // In milliseconds
     private static final TrackSelection.Factory FIXED_FACTORY = new FixedTrackSelection.Factory();
     private AudioFocusManager audioFocusManager;
     private NetworkChangeReceiver networkChangeReceiver;
     private boolean isNetworkForcedPause = false;
     private boolean isRegisteredConnectivityChanged = false;
+
+    // Private class constants
+    private final String TAG = this.getClass().getSimpleName();
+
+    @SuppressWarnings("FieldCanBeLocal")
+    private final String AD_CONFIG_ID_QUERY_PARAM_KEY = "ad_config_id";
+    @SuppressWarnings("FieldCanBeLocal")
+    private final String AD_CONFIG_ID_QUERY_PARAM_VALUE = "ba5e4879-77f0-424b-8c98-706ae5ad7eec";
+    private SSAIComponent plugin;
 
     public BrightcovePlayerView(ThemedReactContext context, ReactApplicationContext applicationContext) {
         super(context);
@@ -83,6 +98,22 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
         this.applicationContext = applicationContext;
         this.applicationContext.addLifecycleEventListener(this);
         this.setBackgroundColor(Color.BLACK);
+
+        // Initialize a new FrameLayout
+        this.adView = new FrameLayout(this.context.getCurrentActivity());
+        // Create Layout Parameters for FrameLayout
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                LayoutParams.MATCH_PARENT,
+                LayoutParams.MATCH_PARENT);
+        // Apply the Layout Parameters for FrameLayout
+        this.adView .setLayoutParams(lp);
+        // Apply 16 pixels padding each site of frame layout
+        this.adView .setPadding(16,16,16,16);
+
+        // Assign a background color for frame layout
+        this.adView .setBackgroundColor(Color.parseColor("#FFFDDB"));
+
+        this.addView(this.adView );
 
         this.playerVideoView = new BrightcoveExoPlayerVideoView(this.context.getCurrentActivity());
 
@@ -95,8 +126,8 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
         setupLayout();
         ViewCompat.setTranslationZ(this, 9999);
 
-		// Change the seek amounts
-		final BrightcoveMediaControlRegistry registry = this.playerVideoView.getBrightcoveMediaController().getMediaControlRegistry();
+        // Change the seek amounts
+        final BrightcoveMediaControlRegistry registry = this.playerVideoView.getBrightcoveMediaController().getMediaControlRegistry();
         ((SeekButtonController) registry.getButtonController(R.id.rewind)).setSeekDefault(SEEK_AMOUNT);
 
         // Implement the analytics to the  Brightcove player
@@ -131,11 +162,11 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
         eventEmitter.on(EventType.DID_SET_VIDEO, new EventListener() {
             @Override
             public void processEvent(Event e) {
-				WritableMap mediaInfo = Arguments.createMap();
-				mediaInfo.putString("title", BrightcovePlayerView.this.mediaInfo.get("name").toString());
+                WritableMap mediaInfo = Arguments.createMap();
+                mediaInfo.putString("title", BrightcovePlayerView.this.mediaInfo.get("name").toString());
 
                 WritableMap event = Arguments.createMap();
-				event.putMap("mediainfo", mediaInfo);
+                event.putMap("mediainfo", mediaInfo);
 
                 ReactContext reactContext = (ReactContext) BrightcovePlayerView.this.getContext();
                 reactContext.getJSModule(RCTEventEmitter.class).receiveEvent(BrightcovePlayerView.this.getId(), BrightcovePlayerManager.EVENT_METADATA_LOADED, event);
@@ -229,7 +260,7 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
                 reactContext.getJSModule(RCTEventEmitter.class).receiveEvent(BrightcovePlayerView.this.getId(), BrightcovePlayerManager.EVENT_UPDATE_BUFFER_PROGRESS, event);
             }
         });
-      	eventEmitter.on(EventType.BUFFERING_STARTED, new EventListener() {
+        eventEmitter.on(EventType.BUFFERING_STARTED, new EventListener() {
             @Override
             public void processEvent(Event e) {
                 WritableMap event = Arguments.createMap();
@@ -249,8 +280,8 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
                         .receiveEvent(BrightcovePlayerView.this.getId(), BrightcovePlayerManager.EVENT_BUFFERING_COMPLETED, event);
             }
         });
-		// Emits all the errors back to the React Native
-      	eventEmitter.on(EventType.ERROR, new EventListener() {
+        // Emits all the errors back to the React Native
+        eventEmitter.on(EventType.ERROR, new EventListener() {
             @Override
             public void processEvent(Event e) {
                 WritableMap error = mapToRnWritableMap(e.properties);
@@ -259,25 +290,25 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
         });
     }
 
-	/**
-	 * Dispatch the event to the player to ENTER the full screen state
-	 */
+    /**
+     * Dispatch the event to the player to ENTER the full screen state
+     */
     public void dispatchEnterFullScreenClickEvent() {
         this.playerVideoView.getEventEmitter().emit(EventType.ENTER_FULL_SCREEN);
     }
 
-	/**
-	 * Dispatch the event to the player to EXIT the full screen state
-	 */
+    /**
+     * Dispatch the event to the player to EXIT the full screen state
+     */
     public void dispatchExitFullScreenClickEvent() {
         this.playerVideoView.getEventEmitter().emit(EventType.EXIT_FULL_SCREEN);
     }
 
-	/**
-	 * Emits the errors back to React Native application
-	 * @param error {WritableMap} - The error object with the information of the error
-	 */
-	private void emitError(WritableMap error) {
+    /**
+     * Emits the errors back to React Native application
+     * @param error {WritableMap} - The error object with the information of the error
+     */
+    private void emitError(WritableMap error) {
         ReactContext reactContext = (ReactContext) BrightcovePlayerView.this.getContext();
         reactContext
                 .getJSModule(RCTEventEmitter.class)
@@ -308,13 +339,13 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
 
     public void setAccountId(String accountId) {
         this.accountId = accountId;
-		this.analytics.setAccount(accountId);
+        this.analytics.setAccount(accountId);
         this.loadVideo();
     }
 
     public void setPlayerId(String playerId) {
         this.playerId = playerId;
-		this.analytics.setDestination("bcsdk://" + playerId);
+        this.analytics.setDestination("bcsdk://" + playerId);
         this.loadVideo();
     }
 
@@ -457,7 +488,7 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
         VideoListener listener = new VideoListener() {
             @Override
             public void onVideo(Video video) {
-				BrightcovePlayerView.this.mediaInfo = video.getProperties();
+                BrightcovePlayerView.this.mediaInfo = video.getProperties();
                 playVideo(video);
             }
 
@@ -470,15 +501,52 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
             }
         };
 
+
+        VideoListener listenerSsai = new VideoListener() {
+            @Override
+            public void onVideo(Video video) {
+                // The Video Sources will have a VMAP url which will be processed by the SSAI plugin,
+                // If there is not a VMAP url, or if there are any requesting or parsing error,
+                // an EventType.ERROR event will be emitted.
+                plugin.processVideo(video);
+            }
+        };
+
         this.catalog = new Catalog(this.playerVideoView.getEventEmitter(), this.accountId, this.policyKey);
 
-		if (this.accountId != null) {
-			if (this.videoId != null) {
-				this.catalog.findVideoByID(this.videoId, listener);
-			} else if (this.referenceId != null) {
-				this.catalog.findVideoByReferenceID(this.referenceId, listener);
-			}
-		}
+
+        // Setup the error event handler for the SSAI plugin.
+        registerErrorEventHandler();
+        plugin = new SSAIComponent(this, this.playerVideoView);
+        if (this.adView  instanceof ViewGroup) {
+            // Set the companion ad container,
+            plugin.addCompanionContainer((ViewGroup) this.adView);
+        }
+
+        // Set the HttpRequestConfig with the Ad Config Id configured in
+        // your https://studio.brightcove.com account.
+        HttpRequestConfig httpRequestConfig = new HttpRequestConfig.Builder()
+                .addQueryParameter(AD_CONFIG_ID_QUERY_PARAM_KEY, AD_CONFIG_ID_QUERY_PARAM_VALUE)
+                .build();
+
+        if (this.accountId != null) {
+            if (this.videoId != null) {
+                this.catalog.findVideoByID(this.videoId, listenerSsai);
+            } else if (this.referenceId != null) {
+                this.catalog.findVideoByReferenceID(this.referenceId, listener);
+            }
+        }
+    }
+
+    private void registerErrorEventHandler() {
+        // Handle the case where the ad data URL has not been supplied to the plugin.
+        EventEmitter eventEmitter = this.playerVideoView.getEventEmitter();
+        eventEmitter.on(EventType.ERROR, new EventListener() {
+            @Override
+            public void processEvent(Event event) {
+                Log.e(TAG, event.getType());
+            }
+        });
     }
 
     private void playVideo(Video video) {
@@ -528,8 +596,8 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
 
     @Override
     public void onHostResume() {
-	    // Register to audio focus changes when the screen resumes
-	    audioFocusManager.registerListener(this);
+        // Register to audio focus changes when the screen resumes
+        audioFocusManager.registerListener(this);
         registerConnectivityChange();
     }
 
@@ -586,9 +654,9 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
 
     @Override
     public void audioFocusChanged(boolean hasFocus) {
-	    // Pause the video when it looses focus
-	    if (!hasFocus && playerVideoView.isPlaying()) {
-	        playerVideoView.pause();
+        // Pause the video when it looses focus
+        if (!hasFocus && playerVideoView.isPlaying()) {
+            playerVideoView.pause();
         }
     }
 
