@@ -89,7 +89,7 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
     @SuppressWarnings("FieldCanBeLocal")
     private final String AD_CONFIG_ID_QUERY_PARAM_KEY = "ad_config_id";
     @SuppressWarnings("FieldCanBeLocal")
-    private final String AD_CONFIG_ID_QUERY_PARAM_VALUE = "ba5e4879-77f0-424b-8c98-706ae5ad7eec";
+    private final String AD_CONFIG_ID_QUERY_PARAM_VALUE = "5ffe2054c35b4ec2ac82b01f5570228a";
     private SSAIComponent plugin;
 
     public BrightcovePlayerView(ThemedReactContext context, ReactApplicationContext applicationContext) {
