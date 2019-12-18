@@ -517,7 +517,7 @@ public class BrightcovePlayerView extends RelativeLayout implements LifecycleEve
 
         // Setup the error event handler for the SSAI plugin.
         registerErrorEventHandler();
-        plugin = new SSAIComponent(this.context.getCurrentActivity(), this.playerVideoView);
+        plugin = new SSAIComponent(this.context, this.playerVideoView);
         if (this.adView  instanceof ViewGroup) {
             // Set the companion ad container,
             plugin.addCompanionContainer((ViewGroup) this.adView);
